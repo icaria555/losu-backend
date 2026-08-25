@@ -1,0 +1,99 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["tally"]
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  profile      Profile?
+  meals        Meal[]
+  sets         LoggedSet[]
+  routine      Routine?
+
+  @@schema("tally")
+}
+
+/// One row per user — mirrors the app's onboarding/profile state
+/// (src/state/types.ts on the frontend).
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+
+  sex       String   @default("m") // 'm' | 'f'
+  age       Int      @default(29)
+  heightCm  Float    @default(178)
+  weightKg  Float    @default(78.4)
+  units     String? // 'met' | 'imp' | null (defaults to metric)
+  goal      String   @default("Maintain") // 'Maintain' | 'Cut (−450)' | 'Bulk (+300)'
+  activity  Int      @default(2) // 0-3, ignored once connected
+
+  connected Boolean  @default(false) // Health Connect linked
+  hcTier    String? // 'total' | 'active' | null
+
+  onboarded Boolean  @default(false) // has completed (or skipped) the Welcome→Result flow
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("tally")
+}
+
+model Meal {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  name      String
+  kcal      Int
+  carbsG    Int
+  proteinG  Int
+  fatG      Int
+  loggedAt  DateTime // when the meal was eaten
+  createdAt DateTime @default(now())
+
+  @@index([userId, loggedAt])
+  @@schema("tally")
+}
+
+model LoggedSet {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  exercise    String
+  weightKg    Float
+  reps        Int
+  completedAt DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId, exercise, completedAt])
+  @@schema("tally")
+}
+
+/// One row per user (matches the app's single "today's routine" card on
+/// Train — not a full multi-routine library). "Last done" isn't stored
+/// here; the route computes it from LoggedSet history for the routine's
+/// exercises, so it's always accurate without needing to be kept in sync.
+model Routine {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+
+  name      String   @default("Push A")
+  exercises String[] @default(["Chest press", "Incline press", "Cable fly", "Triceps pushdown", "Lateral raise"])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("tally")
+}
