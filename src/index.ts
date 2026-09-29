@@ -8,6 +8,8 @@ import profileRoutes from './routes/profile';
 import mealRoutes from './routes/meals';
 import setRoutes from './routes/sets';
 import routineRoutes from './routes/routine';
+import chatRoutes from './routes/chat';
+import { mcpRouter } from './mcp/server';
 
 const app = express();
 
@@ -26,6 +28,8 @@ app.use('/profile', profileRoutes);
 app.use('/meals', mealRoutes);
 app.use('/sets', setRoutes);
 app.use('/routine', routineRoutes);
+app.use('/chat', chatRoutes);
+app.use('/mcp', mcpRouter);
 
 // Error handler
 app.use(errorHandler);

@@ -52,6 +52,59 @@ router.get(
   },
 );
 
+const frequentQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+
+router.get(
+  '/frequent',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user!.userId;
+      const { limit } = frequentQuerySchema.parse(req.query);
+      const take = limit ?? 3;
+
+      // Group by exact name and rank by how often it's been logged — "You've
+      // had this before" is meant as a one-tap repeat of your actual habits,
+      // not a fuzzy "similar meals" match.
+      const grouped = await prisma.meal.groupBy({
+        by: ['name'],
+        where: { userId },
+        _count: { name: true },
+        orderBy: { _count: { name: 'desc' } },
+        take,
+      });
+
+      // Macros for a name aren't fixed (you might log "Chicken rice bowl" at
+      // slightly different portions each time) — use the most recently
+      // logged instance's macros as the representative one, same principle
+      // as `lastByExercise` for workout sets: repeat what you actually did
+      // last time, not an average that never happened.
+      const meals = await Promise.all(
+        grouped.map(async (g) => {
+          const latest = await prisma.meal.findFirst({
+            where: { userId, name: g.name },
+            orderBy: { loggedAt: 'desc' },
+          });
+          return {
+            name: g.name,
+            count: g._count.name,
+            kcal: latest!.kcal,
+            carbsG: latest!.carbsG,
+            proteinG: latest!.proteinG,
+            fatG: latest!.fatG,
+          };
+        }),
+      );
+
+      res.json({ meals });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 router.post(
   '/',
   authenticate,

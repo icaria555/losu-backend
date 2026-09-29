@@ -13,6 +13,11 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
+    "@modelcontextprotocol/express": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@prisma/client": "^5.22.0",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -20,7 +25,8 @@
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
     "prisma": "^5.22.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-mcp": "npm:zod@^4.2.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

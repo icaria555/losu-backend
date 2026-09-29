@@ -6,6 +6,7 @@ const mockFindMany = jest.fn();
 const mockCreate = jest.fn();
 const mockFindFirst = jest.fn();
 const mockDelete = jest.fn();
+const mockGroupBy = jest.fn();
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
@@ -14,6 +15,7 @@ jest.mock('@prisma/client', () => ({
       create: mockCreate,
       findFirst: mockFindFirst,
       delete: mockDelete,
+      groupBy: mockGroupBy,
     },
   })),
 }));
@@ -72,6 +74,37 @@ describe('Meal Routes', () => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ userId: 'user-1', kcal: 640 }) }),
       );
+    });
+  });
+
+  describe('GET /meals/frequent', () => {
+    it('ranks meal names by how often logged, with the most recent macros', async () => {
+      mockGroupBy.mockResolvedValue([
+        { name: 'Chicken rice bowl', _count: { name: 9 } },
+        { name: 'Oat porridge', _count: { name: 6 } },
+      ]);
+      mockFindFirst
+        .mockResolvedValueOnce({ kcal: 640, carbsG: 74, proteinG: 48, fatG: 18 })
+        .mockResolvedValueOnce({ kcal: 512, carbsG: 68, proteinG: 32, fatG: 12 });
+
+      const res = await request(app).get('/meals/frequent').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meals).toEqual([
+        { name: 'Chicken rice bowl', count: 9, kcal: 640, carbsG: 74, proteinG: 48, fatG: 18 },
+        { name: 'Oat porridge', count: 6, kcal: 512, carbsG: 68, proteinG: 32, fatG: 12 },
+      ]);
+      expect(mockGroupBy).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-1' }, take: 3 }),
+      );
+    });
+
+    it('rejects a limit outside the allowed range', async () => {
+      const res = await request(app)
+        .get('/meals/frequent?limit=50')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(400);
     });
   });
 
