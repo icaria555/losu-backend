@@ -6,6 +6,9 @@ import { userIdFromAuthInfo } from './auth';
 import { weeklyTopSets, weeklyVolume } from './weeklyBuckets';
 import { muscleFor, catalogByMuscle } from '../data/muscleGroups';
 import { logger } from '../utils/logger';
+import {
+  GOAL_OFFSET_MAX, GOAL_OFFSET_MIN, estimateTargetKcal, goalLabel, legacyGoalFor, minTargetFor,
+} from '../data/goal';
 
 /** Flattened "Muscle: a, b, c" lines for the update_routine tool description
  * — gives the model the same exercise vocabulary Edit Routine's checklist
@@ -95,7 +98,7 @@ export function registerTallyTools(server: McpServer): void {
       description:
         "Logs one completed set (exercise, weight, reps) to the user's workout history, same as Set Log on the Train screen. completedAt defaults to now.",
       inputSchema: z.object({
-        exercise: z.string().min(1).describe('Exercise name as the user refers to it, e.g. "Chest press"'),
+        exercise: z.string().min(1).describe('Exercise name — the exact English catalog name (e.g. "Chest press") even if the conversation is in Thai'),
         weightKg: z.number().min(0),
         reps: z.number().int().min(0),
         completedAt: z
@@ -142,6 +145,38 @@ export function registerTallyTools(server: McpServer): void {
   );
 
   server.registerTool(
+    'update_goal',
+    {
+      title: 'Set the calorie goal',
+      description:
+        `Sets the user's daily calorie adjustment on top of their adaptive maintenance burn (the goal on the You screen): negative = cut/deficit, positive = bulk/surplus, 0 = maintain. Range ${GOAL_OFFSET_MIN} to ${GOAL_OFFSET_MAX} kcal/day. Turn vague asks into a number yourself (e.g. "gentle cut" ≈ -250, "standard cut" ≈ -450, "lean bulk" ≈ +250) and say which number you used. The daily target itself still moves with activity — this only sets the adjustment. The result may include a warning that the target could fall below a healthy minimum; the change is saved anyway, but pass the warning on to the user.`,
+      inputSchema: z.object({
+        offsetKcal: z.number().int().min(GOAL_OFFSET_MIN).max(GOAL_OFFSET_MAX)
+          .describe('kcal/day: negative = cut, positive = bulk, 0 = maintain'),
+      }),
+    },
+    safeTool('update_goal', async (args, ctx) => {
+      const userId = requireUserId(ctx);
+      const profile = await prisma.profile.upsert({
+        where: { userId },
+        update: { goalOffsetKcal: args.offsetKcal, goal: legacyGoalFor(args.offsetKcal) },
+        create: { userId, goalOffsetKcal: args.offsetKcal, goal: legacyGoalFor(args.offsetKcal) },
+      });
+      const estimatedTargetKcal = estimateTargetKcal(profile, args.offsetKcal);
+      const minimumKcal = minTargetFor(profile.sex);
+      return textResult({
+        ok: true,
+        goal: goalLabel(args.offsetKcal),
+        goalOffsetKcal: args.offsetKcal,
+        estimatedTargetKcal,
+        warning: estimatedTargetKcal < minimumKcal
+          ? `Saved, but on ${profile.connected ? 'a low-activity day' : 'a typical day'} this puts the daily target around ${estimatedTargetKcal} kcal — below the ${minimumKcal} kcal minimum Tally recommends. The app will show a warning.`
+          : undefined,
+      });
+    }),
+  );
+
+  server.registerTool(
     'update_routine',
     {
       title: 'Set the workout routine',
@@ -152,7 +187,8 @@ export function registerTallyTools(server: McpServer): void {
         `proposed in chat — never on a vague "give me a routine" without first describing what you'd set and ` +
         `getting a yes. Prefer exercise names from Tally's catalog so they get a muscle-group tag and show up ` +
         `checked on Edit Routine: ${catalogSummary()}. A name outside this catalog is still allowed (e.g. an ` +
-        `exercise the user has logged before that isn't in the catalog) but won't have a muscle group.`,
+        `exercise the user has logged before that isn't in the catalog) but won't have a muscle group. Always pass ` +
+        `the English catalog names, even when the conversation is in Thai.`,
       inputSchema: z.object({
         name: z.string().min(1).optional().describe('Routine name, e.g. "Push A"; omit to keep the current name'),
         exercises: z
@@ -269,7 +305,8 @@ export function registerTallyTools(server: McpServer): void {
       return textResult({
         profile: {
           weightKg: profile.weightKg,
-          goal: profile.goal,
+          goal: goalLabel(profile.goalOffsetKcal),
+          goalOffsetKcal: profile.goalOffsetKcal,
           sex: profile.sex,
           age: profile.age,
           heightCm: profile.heightCm,

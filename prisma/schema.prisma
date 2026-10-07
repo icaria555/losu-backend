@@ -34,7 +34,15 @@ model Profile {
   heightCm  Float    @default(178)
   weightKg  Float    @default(78.4)
   units     String? // 'met' | 'imp' | null (defaults to metric)
+  language  String? // 'en' | 'th' | null (null = follow the device language)
+  /// Deprecated — superseded by goalOffsetKcal. Kept (not dropped) because
+  /// `npm start` runs `prisma db push`, which refuses to drop a column with
+  /// data unless run with --accept-data-loss; still written with the nearest
+  /// legacy preset so old app builds reading it stay roughly right.
   goal      String   @default("Maintain") // 'Maintain' | 'Cut (−450)' | 'Bulk (+300)'
+  /// Daily calorie adjustment on top of the adaptive TDEE: negative = cut,
+  /// positive = bulk. Range enforced in src/data/goal.ts.
+  goalOffsetKcal Int @default(0)
   activity  Int      @default(2) // 0-3, ignored once connected
 
   connected Boolean  @default(false) // Health Connect linked

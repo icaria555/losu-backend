@@ -1,29 +1,21 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { GoogleGenAI, mcpToTool } from '@google/genai';
+import { PrismaClient } from '@prisma/client';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { authenticate } from '../middleware/auth';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { imageSchema, MAX_IMAGES } from '../utils/images';
+import { chatLanguageInstruction, userLanguage } from '../data/language';
 
 const router = Router();
+const prisma = new PrismaClient();
 
 const messageSchema = z.object({
   role: z.enum(['user', 'assistant']),
   text: z.string().min(1),
-});
-
-// A resized/compressed photo (see the frontend's use of expo-image-manipulator
-// before this ever reaches the wire) — base64-encoded. Capped per-image well
-// under the shared express.json({ limit: '10mb' }) body limit divided by
-// MAX_IMAGES, as a sanity backstop on top of the client-side resize (a real
-// 1024px/quality-0.7 JPEG lands nowhere near this).
-const MAX_IMAGES = 4;
-const MAX_IMAGE_BASE64_LENGTH = 2_000_000; // ~1.5MB decoded, per image
-const imageSchema = z.object({
-  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-  data: z.string().max(MAX_IMAGE_BASE64_LENGTH),
 });
 
 // Stateless: the client resends the whole conversation each turn (the newest
@@ -38,8 +30,8 @@ const chatRequestSchema = z.object({
 });
 
 const SYSTEM_INSTRUCTION = `You are Tally's in-app assistant, embedded in a calorie and workout tracking app.
-You can act on the user's behalf via tools: log a meal, log a workout set, log body weight, set the workout
-routine, edit or delete a previously logged meal, and read back their progress (lifting trend per exercise, or
+You can act on the user's behalf via tools: log a meal, log a workout set, log body weight, set the calorie
+goal (update_goal: a daily cut/bulk adjustment), set the workout routine, edit or delete a previously logged meal, and read back their progress (lifting trend per exercise, or
 an overview of every exercise; recent nutrition averages; current profile). Always use a tool rather than just
 saying you logged something. Confirm briefly what you logged (name/exercise, numbers) after a write. Keep
 replies short and conversational — this is a small chat bubble, not a report. If the user asks about something
@@ -75,7 +67,7 @@ router.post(
   authenticate,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!config.geminiApiKey) {
-      res.status(503).json({ error: 'Chat is not configured yet' });
+      res.status(503).json({ error: 'Chat is not configured yet', code: 'chat_not_configured' });
       return;
     }
 
@@ -107,7 +99,7 @@ router.post(
       const chat = ai.chats.create({
         model: config.geminiModel,
         config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
+          systemInstruction: SYSTEM_INSTRUCTION + chatLanguageInstruction(await userLanguage(prisma, req.user!.userId)),
           tools: [mcpToTool(mcpClient)],
         },
         history,
